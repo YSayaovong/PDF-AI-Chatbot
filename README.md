@@ -1,195 +1,178 @@
-# DocuBot — PDF Q&A Chatbot Powered by Claude AI
+# DocuBot — AI-Powered PDF Reader for Educators
 
 ## 1. Project Background
 
-As a developer applying AI to a practical document problem, I built DocuBot to eliminate the most common friction point in working with PDFs: *you have a document, you have a question, and reading the whole file to find the answer is not a reasonable use of time.*
+A teacher came to me with a problem I hear constantly in education: too many PDFs, not enough time.
 
-Standard LLMs can answer general knowledge questions, but they cannot answer questions about a specific document you uploaded today. DocuBot bridges that gap — it reads the PDF you provide, passes the full extracted text alongside your question to Claude, and returns answers that are grounded in that specific document's content. If the answer is not in the document, it says so clearly rather than hallucinating a response.
+Between lesson plans, research papers, curriculum guides, district policy documents, and student resources, educators spend hours manually hunting through documents for specific information. A teacher preparing a unit on a new topic might have 10–15 PDFs open at once, skimming pages looking for a single paragraph that answers a specific question.
 
-The system is built on three components working together: **PyMuPDF** for reliable page-by-page text extraction, **Claude (claude-sonnet-4-20250514)** as the reasoning engine, and **Gradio** as the shareable web interface. The full pipeline runs in a single Python file with no vector database, no embedding model, and no retrieval infrastructure — the entire extracted document is passed to Claude on every turn, letting the model reason over the full context directly.
+I built DocuBot to solve that problem. Upload any PDF — a textbook chapter, a research study, an IEP document, a school policy guide — and ask questions about it in plain English. DocuBot reads the entire document and answers instantly, grounded in exactly what that document says. No more scrolling. No more Ctrl+F. No more reading pages you do not need.
 
-The project is designed around two core capabilities:
-
-- **Full-document comprehension:** Every page of the PDF is extracted with page number labels and passed as structured context on every API call — Claude always has the complete picture, not a retrieved fragment
-- **Multi-turn conversation:** The full conversation history is maintained across turns, enabling follow-up questions, clarifications, and references to prior answers without the user re-stating context
+The goal was to keep it dead simple for a non-technical user: one file upload, one text box, one button. The AI handles everything else.
 
 ---
 
-## 2. System Architecture & Data Flow
+## 2. What DocuBot Does
 
-DocuBot uses a direct context injection approach rather than RAG (Retrieval-Augmented Generation). Instead of embedding and retrieving chunks, the entire extracted document is included in every API call. This is the correct design choice for typical PDF lengths where full context fits within Claude's context window.
+### The Teacher's Workflow — Before and After
 
-```
-User Action
-──────────────────────────────────────────────────────────────
-    │
-    ▼
-┌─────────────────────────────────────┐
-│         Gradio Web Interface         │
-│  - PDF file upload (left panel)      │
-│  - Chat input + history (right panel)│
-│  - Clear chat button                 │
-└─────────────────────────────────────┘
-    │
-    ▼  PDF filepath passed to extract_pdf_text()
-┌─────────────────────────────────────┐
-│         PyMuPDF Extraction           │  fitz.open() → page.get_text()
-│  - Opens PDF via fitz                │
-│  - Iterates all pages                │
-│  - Labels each page: [Page N]        │
-│  - Joins into single text string     │
-└─────────────────────────────────────┘
-    │
-    ▼  doc_text injected into message
-┌─────────────────────────────────────┐
-│         Message Construction         │
-│  - If PDF present:                   │
-│    "Here are its contents: {doc_text}│
-│     User question: {user_message}"   │
-│  - If no PDF: prompt to upload one   │
-└─────────────────────────────────────┘
-    │
-    ▼  Full conversation history + current message
-┌─────────────────────────────────────┐
-│         Anthropic Claude API         │
-│  Model: claude-sonnet-4-20250514     │
-│  Max tokens: 1,024                   │
-│  System prompt: DocuBot persona +    │
-│    document-grounding instruction    │
-│  Messages: history + current turn    │
-└─────────────────────────────────────┘
-    │
-    ▼  response.content[0].text
-┌─────────────────────────────────────┐
-│         Gradio Chat Display          │
-│  - Bot reply appended to history     │
-│  - Input box cleared automatically   │
-│  - State synced for next turn        │
-└─────────────────────────────────────┘
-```
+**Before DocuBot:**
+A teacher receives a 47-page district curriculum guide. She needs to know the specific learning objectives for Grade 5 Science Unit 3. She opens the PDF, searches for keywords, scrolls through three sections, finds a table, reads surrounding context to confirm it is the right one. Five minutes for one answer.
 
-| Component | Role | Implementation |
-|---|---|---|
-| Gradio Blocks | Web UI — upload panel + chat panel | `gr.Blocks`, `gr.File`, `gr.Chatbot`, `gr.Textbox` |
-| PyMuPDF (`fitz`) | PDF text extraction with page labels | `fitz.open()` → `page.get_text()` |
-| Message builder | Injects doc context into every user turn | String formatting with doc_text + user_message |
-| Anthropic client | LLM API call with conversation history | `client.messages.create()` |
-| Gradio State | Persists chat history across turns | `gr.State([])` synced on every `.then()` chain |
+**With DocuBot:**
+She uploads the PDF, types *"What are the learning objectives for Grade 5 Science Unit 3?"* and reads the answer in seconds — with the exact page number it came from.
+
+That is the entire pitch. The technology underneath is sophisticated. The experience should feel effortless.
 
 ---
 
-## 3. Code Walkthrough
+## 3. How It Works
 
-### PDF Extraction — `extract_pdf_text()`
+DocuBot is built on three components: **PyMuPDF** extracts the text from the uploaded PDF, **Claude AI** reads and understands it, and **Gradio** provides the simple two-panel interface teachers interact with.
 
-```python
-def extract_pdf_text(pdf_path):
-    doc = fitz.open(pdf_path)
-    pages = []
-    for i, page in enumerate(doc):
-        pages.append(f"[Page {i+1}]\n{page.get_text()}")
-    doc.close()
-    return "\n\n".join(pages).strip()
+```
+Teacher uploads PDF
+        │
+        ▼
+┌──────────────────────────────┐
+│   PyMuPDF reads the document │  — Every page extracted with [Page N] label
+│   page by page               │  — Preserves reading order and structure
+└──────────────────────────────┘
+        │
+        ▼
+┌──────────────────────────────┐
+│   Teacher types a question   │  — Plain English, any question
+└──────────────────────────────┘
+        │
+        ▼
+┌──────────────────────────────┐
+│   Claude AI receives:        │  — Full document text
+│   • The entire document      │  — Full conversation history
+│   • The question asked       │  — Clear instruction to stay on-document
+│   • Prior conversation       │
+└──────────────────────────────┘
+        │
+        ▼
+┌──────────────────────────────┐
+│   Answer returned to teacher │  — Grounded in the document
+│   in the chat panel          │  — Cites page where relevant
+│                              │  — Honest when answer isn't there
+└──────────────────────────────┘
 ```
 
-Each page is labeled `[Page N]` before extraction. This means Claude receives structured, page-aware context — when it references where information came from, it can cite a specific page number rather than returning an unattributed answer. The full text is returned as a single string, joining all pages with double newlines for readability.
-
-### Message Construction and Context Injection
-
-```python
-if doc_text:
-    full_message = (
-        f"The user has uploaded a PDF document. Here are its contents:\n\n"
-        f"{doc_text}\n\n"
-        f"---\nUser question: {user_message}"
-    )
-else:
-    full_message = user_message + "\n\n(No PDF uploaded yet — please upload one using the panel on the left.)"
-```
-
-The document text is injected into every user turn, not just the first one. This ensures Claude always has full document context regardless of where in the conversation the question falls — the model cannot "forget" the document between turns. When no PDF is uploaded, the system prompts the user to upload one rather than attempting to answer without context.
-
-### Conversation History — Anthropic Message Format
-
-```python
-messages = []
-for human, bot in history:
-    messages.append({"role": "user",      "content": human})
-    messages.append({"role": "assistant", "content": bot})
-messages.append({"role": "user", "content": full_message})
-```
-
-Gradio stores history as `[[human, bot], [human, bot], ...]` pairs. This loop converts that format into the alternating `user`/`assistant` message list that the Anthropic API expects, then appends the current turn. The result is a complete, ordered conversation that Claude can reason over — prior questions and answers are fully visible when generating the next response.
-
-### System Prompt — DocuBot Identity and Grounding Instruction
-
-```python
-system=(
-    "You are DocuBot, a helpful assistant that answers questions about uploaded PDF documents. "
-    "Base your answers on the document contents provided. "
-    "If the answer is not in the document, say so clearly and helpfully."
-)
-```
-
-Three directives in one system prompt: a defined persona (DocuBot), a grounding instruction (base answers on the document), and a hallucination prevention rule (say so if the answer is not there). The grounding instruction is what separates this from a general-purpose Claude conversation — the model is explicitly instructed to treat the injected document as the authoritative source.
+The key design decision: the **entire document** is passed to Claude on every question, not just a retrieved excerpt. This means Claude can answer questions that span multiple sections, compare information from different parts of the document, or summarize across the whole thing — not just match keywords to a nearby paragraph.
 
 ---
 
-## 4. Interface Design
+## 4. Built For Teachers, Not Developers
 
-The UI is built with `gr.Blocks` and a custom CSS layer, organized into a two-panel layout:
+Every design choice in DocuBot was made with a non-technical user in mind.
 
-- **Left panel (scale=1):** PDF upload component accepting `.pdf` files, hint text, and the Clear Chat button
-- **Right panel (scale=2):** Full-height chatbot display, text input box, and Send button
-
-Both the Send button click and the Enter key (`user_input.submit`) are wired to the same `chat()` function. Each event chain uses `.then()` to synchronize the Gradio State with the chatbot output and clear the input box after each submission — standard Gradio multi-step event handling.
+### The Interface Is Two Things: Upload and Ask
 
 ![DocuBot Interface](https://github.com/YSayaovong/PDF-AI-Chatbot-/blob/main/assets/chatbot.png?raw=true)
 
-![Direct Context Injection vs RAG](https://github.com/YSayaovong/PDF-AI-Chatbot-/blob/main/assets/difference.png?raw=true)
+The left panel has one job: accept a PDF. The right panel has one job: let you chat. There are no settings to configure, no model parameters to tune, no prompt templates to fill out. Upload the file, ask the question, get the answer.
+
+### It Remembers the Conversation
+
+A teacher does not ask one question and leave. She asks a follow-up. Then another. DocuBot maintains the full conversation history across every turn — so she can ask *"What does the document say about differentiated instruction?"* and then follow up with *"Can you give me an example from the text?"* and Claude understands the context without being reminded.
+
+### It Does Not Make Things Up
+
+Claude is explicitly instructed: *"Base your answers on the document contents provided. If the answer is not in the document, say so clearly and helpfully."* If a teacher asks about something the document does not cover, DocuBot says so — it does not invent a plausible-sounding answer. For educators making curriculum and policy decisions, that honesty is not optional.
+
+### It Tells You Where to Look
+
+The PDF extraction labels every page — `[Page 1]`, `[Page 2]`, and so on — and Claude receives that structure. When it references information, it can tell the teacher which page it came from, so she can go verify the original source herself if needed.
+
+![Why Full-Document Context Matters](https://github.com/YSayaovong/PDF-AI-Chatbot-/blob/main/assets/difference.png?raw=true)
 
 ---
 
-## 5. Design Decisions
+## 5. Classroom Use Cases
 
-### Direct Context Injection vs. RAG
+DocuBot was built general enough to handle any PDF a teacher might work with:
 
-The `difference.png` asset illustrates this choice. A RAG pipeline — embedding chunks, storing vectors, retrieving by similarity — is the right architecture when a document is too large to fit in the model's context window, or when querying across many documents simultaneously. For typical PDFs (reports, papers, contracts), full-document context fits comfortably within Claude's context window.
+| Document Type | Example Question |
+|---|---|
+| Textbook chapters | "Summarize the main causes of the Civil War from this chapter." |
+| Curriculum guides | "What are the Grade 4 Math standards covered in Unit 2?" |
+| Research papers | "What does this study conclude about reading intervention strategies?" |
+| IEP documents | "What accommodations are listed for this student?" |
+| School policy guides | "What is the attendance policy for excused absences?" |
+| Lesson plan templates | "What materials are needed for the Week 3 science activity?" |
+| Professional development resources | "What does this PD guide recommend for formative assessment?" |
 
-Direct injection is simpler, more reliable, and produces better answers for this use case: Claude reasons over the complete document rather than a retrieved subset, which means questions that draw on multiple sections — comparisons, summaries, conditional logic across paragraphs — are answered correctly rather than being limited by retrieval precision.
-
-### Why Claude (Anthropic) Over OpenAI
-
-Claude's large context window and instruction-following reliability make it well-suited for document Q&A. The model consistently follows the grounding instruction ("base your answers on the document") and correctly identifies when a question falls outside the document scope — reducing hallucination without additional prompt engineering.
-
-### Why PyMuPDF (`fitz`) Over Other PDF Libraries
-
-PyMuPDF is faster and more reliable than `PyPDF2` for extracting text from complex PDFs — it handles multi-column layouts, embedded fonts, and scanned-document OCR modes more gracefully. The page-by-page iteration with explicit `[Page N]` labeling is a deliberate design choice: it gives Claude spatial context within the document that page-agnostic extraction strips away.
+Any document a teacher already has — no reformatting, no preparation, just upload and ask.
 
 ---
 
-## 6. Recommendations & Next Steps
+## 6. What I Would Build Next
 
-Based on the current architecture, the following enhancements would meaningfully extend DocuBot's capability and production-readiness:
+DocuBot solves the core problem well. Here is what I would add to make it more powerful for educators specifically:
 
-- **Add source page citation to responses.** The extracted text already contains `[Page N]` labels that Claude can reference. Updating the system prompt to explicitly instruct Claude to cite page numbers when answering would give users a direct path to verify answers in the original document — critical for legal, financial, and research use cases.
+- **Multi-document comparison.** Teachers often have the old curriculum guide and the new one side by side. Uploading both and asking *"What changed between the 2022 and 2024 versions of this standard?"* would be immediately useful. This requires extending the file upload to accept multiple PDFs and labeling each document's content separately so Claude can distinguish sources.
 
-- **Implement document-length handling for very large PDFs.** Direct context injection works well for typical documents, but PDFs exceeding Claude's context window (very long reports, book-length documents) will truncate. Adding a character count check and a chunked summarization fallback for oversized documents would make the system robust to edge cases without requiring a full RAG rewrite.
+- **Automatic document summary on upload.** The first thing a teacher wants when she uploads a new document is orientation — what is this, what does it cover, how long is it? Triggering an automatic summary the moment a PDF is uploaded would replace the mental overhead of skimming the table of contents.
 
-- **Persist conversation history to a session file.** Currently all chat history is lost when the browser tab is closed. Writing history to a local JSON file keyed by document hash would allow users to resume previous sessions — particularly useful for long research or review workflows where the same document is revisited multiple times.
+- **Saved sessions by document.** Right now, closing the tab ends the conversation. Saving chat history tied to each document — so a teacher can pick up where she left off on the same curriculum guide tomorrow — would make DocuBot a long-term research assistant rather than a one-session tool.
 
-- **Support multi-PDF upload.** The current `gr.File` component accepts one file. Extending this to `gr.File(file_count="multiple")` and concatenating extracted text with document-level labels (`[Document: filename.pdf]`) would let users query across multiple related documents simultaneously — comparing two contracts, cross-referencing multiple reports, or querying a set of research papers together.
+- **Export answers to a note document.** A teacher finds three important passages across a 60-page research paper. She wants to paste them into her lesson plan. Adding an export button that compiles the conversation Q&A pairs into a clean Word or PDF document would eliminate the manual copy-paste step.
 
-- **Add a document summary on upload.** When a PDF is first uploaded, triggering an automatic one-paragraph summary ("Here is what this document covers: ...") would orient the user before they start asking questions, reduce exploratory queries, and confirm that the extraction succeeded and the content is readable.
+- **Classroom-safe deployment.** The current setup runs locally with a personal API key. For school-wide use, wrapping this in a simple authenticated web app — one login per teacher, no API key management required — would make it deployable across an entire department or district without requiring any technical setup from the end users.
 
-- **Stream responses for long answers.** The current implementation waits for the full API response before displaying it. Using `client.messages.stream()` instead of `client.messages.create()` would let tokens appear in the chat interface progressively — improving perceived responsiveness for long, detailed answers.
+---
+
+## How To Run
+
+### 1. Install the three dependencies
+```bash
+pip install gradio anthropic pymupdf
+```
+
+### 2. Add your Anthropic API key
+```bash
+export ANTHROPIC_API_KEY="sk-ant-your-key-here"
+```
+
+### 3. Start DocuBot
+```bash
+python pdf_chatbot.py
+```
+
+Opens at `http://localhost:7860`. The `share=True` flag generates a public URL — you can send it to a teacher to try immediately without them installing anything.
+
+### 4. Use it
+1. Upload a PDF in the left panel
+2. Ask a question in the text box
+3. Press **Send** or hit **Enter**
+4. Ask follow-ups freely — the conversation builds on itself
+5. Hit **Clear Chat** to start fresh with a new document
+
+---
+
+## Project Structure
+
+```
+PDF-AI-Chatbot/
+│
+├── pdf_chatbot.py      — Everything: extraction, Claude API, Gradio UI
+│
+├── assets/
+│   ├── chatbot.png     — DocuBot interface screenshot
+│   └── difference.png  — Full-document context vs. chunk retrieval diagram
+│
+├── requirements.txt
+└── README.md
+```
 
 ---
 
 ## Tools Used
 
 - Python
-- Gradio (two-panel web UI, shareable public URL)
-- Anthropic Python SDK (Claude API — `claude-sonnet-4-20250514`)
-- PyMuPDF / `fitz` (page-by-page PDF text extraction with page labels)
-- Git / GitHub (version control)
+- Gradio — two-panel web interface, instant public sharing
+- Anthropic SDK — Claude (`claude-sonnet-4-20250514`) for document Q&A
+- PyMuPDF (`fitz`) — fast, reliable PDF text extraction with page-level structure
+- Git / GitHub — version control
