@@ -64,7 +64,7 @@ The key design decision: the **entire document** is passed to Claude on every qu
 
 ---
 
-## 4. Built For Teachers, Not Developers
+## 4. Built For Teachers
 
 Every design choice in DocuBot was made with a non-technical user in mind.
 
