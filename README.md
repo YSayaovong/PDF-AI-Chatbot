@@ -131,3 +131,8 @@ DocuBot solves the core problem well. Here is what I would add to make it more p
 - Anthropic SDK — Claude (`claude-sonnet-4-20250514`) for document Q&A
 - PyMuPDF (`fitz`) — fast, reliable PDF text extraction with page-level structure
 - Git / GitHub — version control
+
+---
+
+## Disclaimer
+This project was developed as an independent use case study based on direct experience. No proprietary data, customer specifications, or internal company documents were used. The workflow analysis, KPIs, and ROI model are based on observed process patterns and industry-representative estimates.
